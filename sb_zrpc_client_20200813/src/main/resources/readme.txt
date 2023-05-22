@@ -1,0 +1,2 @@
+新增XXXHandler的话，需要新建一个配置类XXX继承 ZLogParentConfiguration,
+并且在ZLogConfChecker中注入XXX，并且写好判断的逻辑
