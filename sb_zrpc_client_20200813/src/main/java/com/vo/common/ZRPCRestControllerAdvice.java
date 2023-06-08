@@ -24,7 +24,7 @@ public class ZRPCRestControllerAdvice {
 		System.out.println("ZRPCRestControllerAdvice.hanlde()" + "\t" + LocalDateTime.now() + "\t"
 				+ Thread.currentThread().getName());
 
-		e.printStackTrace();
+//		e.printStackTrace();
 
 		if (e instanceof ZRPCRemoteMethodException) {
 			final ZRPCRemoteMethodException ze = (ZRPCRemoteMethodException) e;

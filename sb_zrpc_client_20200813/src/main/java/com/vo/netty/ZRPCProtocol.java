@@ -1,8 +1,8 @@
 package com.vo.netty;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -56,6 +56,13 @@ public class ZRPCProtocol {
 	 * 	附加信息	Key 见 ZRPCProtocolAttachEnum
 	 */
 	private Map<Integer, Object> attachMap;
+
+	public static Map<Integer, Object> dt() {
+		final Map<Integer, Object> attachMap = new HashMap<>(2,1F);
+		attachMap.put(ZRPCProtocolAttachEnum.DISTRIBUTED_TRANSACTION.getAttachType(), 1);
+		return attachMap;
+	}
+
 
 	@Data
 	@Builder

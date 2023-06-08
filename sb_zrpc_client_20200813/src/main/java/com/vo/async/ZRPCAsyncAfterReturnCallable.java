@@ -18,10 +18,10 @@ import com.vo.netty.ZRPCProtocol;
 
 /**
  * ZRPCAsyncAfterReturn 的 Runnable对象
- * 
+ *
  * @author zhangzhen
  * @date 2021-12-23 18:59:41
- * 
+ *
  */
 public class ZRPCAsyncAfterReturnCallable implements Callable<Object>{
 
@@ -30,35 +30,38 @@ public class ZRPCAsyncAfterReturnCallable implements Callable<Object>{
 	public ZRPCAsyncAfterReturnCallable(final ZRPCProtocol zrpe) {
 		this.zrpe = zrpe;
 	}
-	
+
 	@Override
 	public Object call() throws Exception {
-		
-		final Object rv = zrpe.getRv();
-		if (Objects.isNull(rv)) {
-			return null;
-		}
-		
-		final ZMethodInfo zMethodInfo = ZMethodAysncResultCache.get(zrpe.getId());
+		System.out.println(java.time.LocalDateTime.now() + "\t" + Thread.currentThread().getName() + "\t"
+				+ "ZRPCAsyncAfterReturnCallable.call()");
+
+		final Object rv = this.zrpe.getRv();
+//		if (Objects.isNull(rv)) {
+//			return null;
+//		}
+
+		final ZMethodInfo zMethodInfo = ZMethodAysncResultCache.get(this.zrpe.getId());
 		if (Objects.isNull(zMethodInfo)) {
 			return null;
 		}
-		
+
 		final String afterReturn = zMethodInfo.getAfterReturn();
 		final List<String> arList = Lists.newArrayList(afterReturn.split(ZRPCRemoteMethodAnnotationBeanGenerator.AFTER_RETURN_DELIMITER));
 		final AtomicReference<Object> rrrr = new AtomicReference<>();
 		for (final String className : arList) {
 			final Class<?> cls = Class.forName(className);
-			final Optional<Method> handleMO = 
+			final Optional<Method> handleMO =
 					Lists.newArrayList(cls.getDeclaredMethods())
 						.stream()
-						.filter(m -> m.getName().equals(ZRPCAsyncAfterReturn.HANDLE_METHOD_NAME))
+						.filter(m -> ZRPCAsyncAfterReturn.HANDLE_METHOD_NAME.equals(m.getName()))
 						.findFirst();
 			if (handleMO.isPresent()) {
 				final Method hm = handleMO.get();
-				
+
 				if (Objects.isNull(rrrr.get())) {
-					final String rJSON = ZProtobufUtil.deserialize((byte[]) zrpe.getRv(), String.class);
+					final String rJSON = "{}";
+//					final String rJSON = ZProtobufUtil.deserialize((byte[]) this.zrpe.getRv(), String.class);
 					final Object arr1 = hm.invoke(cls.newInstance(), rJSON);
 					rrrr.set(arr1);
 				} else {
@@ -67,7 +70,7 @@ public class ZRPCAsyncAfterReturnCallable implements Callable<Object>{
 				}
 			}
 		}
-		
+
 		return rrrr.get();
 	}
 

@@ -4,7 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 /**
- *
+ * ZRPCProtocol附近信息枚举值
  *
  * @author zhangzhen
  * @date 2022年1月4日
@@ -28,6 +28,26 @@ public enum ZRPCProtocolAttachEnum {
 	 * 本机器名称
 	 */
 	HOST_NAME(3),
+
+	/**
+	 * 分布式事务
+	 */
+	DISTRIBUTED_TRANSACTION(4),
+
+	/**
+	 * 分布式事务的唯一ID
+	 */
+	DISTRIBUTED_TRANSACTION_ID(5),
+
+	/**
+	 * 分布式事务的附加信息
+	 */
+	DISTRIBUTED_TRANSACTION_ATTACH(6),
+
+	/**
+	 * ZDTLocal标记的方法执行时候的ID
+	 */
+	ZDT_LOCAL_ID(7),
 
 	;
 

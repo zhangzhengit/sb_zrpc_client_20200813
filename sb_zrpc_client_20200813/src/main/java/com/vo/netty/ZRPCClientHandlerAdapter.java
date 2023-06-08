@@ -9,11 +9,15 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.vo.aspect.ZDTLocalAspect;
+import com.vo.aspect.ZDistributedTransactionAspect;
+import com.vo.aspect.ZDistributedTransactionAspect.InvokeDTO;
 import com.vo.async.ZRPCAsyncAfterReturnCallable;
 import com.vo.cache.ZRC_RMI_CACHE;
 import com.vo.common.ZBeanUtil;
@@ -21,7 +25,10 @@ import com.vo.common.ZE;
 import com.vo.common.ZIDG;
 import com.vo.common.ZProtobufUtil;
 import com.vo.conf.ZrpcConfiguration;
-import com.vo.core.ZLog;
+import com.vo.core.ZLog2;
+import com.votool.common.ZPU;
+import com.votool.ze.ZERunnable;
+import com.votool.ze.ZES;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ArrayUtil;
@@ -37,10 +44,23 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 @Component
 public class ZRPCClientHandlerAdapter extends ChannelInboundHandlerAdapter {
 
+	private static final ZLog2 LOG = ZLog2.getInstance();
+
+	private final com.votool.ze.ZE zeZPU = ZES.newZE(1, "zrpc-client-ZPU-Thread-");
+
+	/**
+	 * 给 分布式事务的INVOKE事件和后续的COMMIT和ROLLBACK事件用的线程，三个事件用同一个线程来执行
+	 */
+	private final com.votool.ze.ZE ze1 = ZES.newZE( "zrpc-client-DT-Thread-");
+
+
 	@Value("${server.port}")
 	private Integer serverPort;
 
-	private final ZLog log = ZLog.getInstance();
+	@Autowired
+	private ZDistributedTransactionAspect zDistributedTransactionAspect;
+	@Autowired
+	private ZDTLocalAspect zdtLocalAspect;
 
 	/**
 	 * Send.
@@ -60,16 +80,16 @@ public class ZRPCClientHandlerAdapter extends ChannelInboundHandlerAdapter {
 	 */
 	@Override
 	public void channelActive(final ChannelHandlerContext ctx) throws Exception {
-		this.log.info("channelActive,ctx={}", ctx);
+		ZRPCClientHandlerAdapter.LOG.info("channelActive,ctx={}", ctx);
 		ZRCTXC.set(ctx);
 		final Map<String, Method> methodMap = ZRMethodCache.allMethod();
 
 		if (CollUtil.isEmpty(methodMap)) {
-			this.log.info("channelActive,methodMap is empty");
+			ZRPCClientHandlerAdapter.LOG.info("channelActive,methodMap is empty");
 			return;
 		}
 
-		this.log.info("channelActive,methodMap.size={},methodSet={}", methodMap.size(), methodMap.keySet());
+		ZRPCClientHandlerAdapter.LOG.info("channelActive,methodMap.size={},methodSet={}", methodMap.size(), methodMap.keySet());
 
 		final Set<Entry<String, Method>> es = methodMap.entrySet();
 		final ZrpcConfiguration zrpcConf = ZBeanUtil.getBean(ZrpcConfiguration.class);
@@ -94,7 +114,7 @@ public class ZRPCClientHandlerAdapter extends ChannelInboundHandlerAdapter {
 
 			zrpe.setAttachMap(attchMap);
 
-			this.log.info("开始注册远程方法,id={},method={}", zrpe.getId(), zrpe.getName());
+			ZRPCClientHandlerAdapter.LOG.info("开始注册远程方法,id={},method={}", zrpe.getId(), zrpe.getName());
 			ZRPCClientSender.send(zrpe, ctx);
 
 		}
@@ -109,89 +129,191 @@ public class ZRPCClientHandlerAdapter extends ChannelInboundHandlerAdapter {
 	 */
 	@Override
 	public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
-		this.log.info("读取到消息,msg={}", msg);
+
+		ZRPCClientHandlerAdapter.LOG.info("读取到消息,msg={}", msg);
+
 		if (msg instanceof ZRPCProtocol) {
-			final ZRPCProtocol zrpe = (ZRPCProtocol) msg;
-			this.log.info("读取到ZRPE消息,id={},zrpe={}", zrpe.getId(), zrpe);
+			this.readZRPCProtocol(ctx, msg);
+		}
 
-			final int type = zrpe.getType();
-			final ZRPETE zrpete = ZRPETE.valueOfType(type);
-			switch (zrpete) {
-			case RESULT:
-				this.log.info("处理RESULT消息,id={},rv={},zrpe={}", zrpe.getId(), zrpe.getRv(), zrpe);
-				ZRC_RMI_CACHE.setResult(zrpe.getId(), zrpe);
+	}
 
-				if (Objects.isNull(zrpe.getRv())) {
-					return;
-				}
+	private void readZRPCProtocol(final ChannelHandlerContext ctx, final Object msg) {
+		final ZRPCProtocol zrpe = (ZRPCProtocol) msg;
+		ZRPCClientHandlerAdapter.LOG.info("读取到ZRPE消息,id={},zrpe={}", zrpe.getId(), zrpe);
 
-				// 在此异步执行远程方法返回的结果
-				ZE.submit(new ZRPCAsyncAfterReturnCallable(zrpe));
-				return;
+		final ZRPETE zrpete = ZRPETE.valueOfType(zrpe.getType());
+		final Map<Integer, Object> attachMap = zrpe.getAttachMap();
+		final boolean isDTMethod = Objects.nonNull(attachMap) && Objects
+				.nonNull(attachMap.get(ZRPCProtocolAttachEnum.DISTRIBUTED_TRANSACTION.getAttachType()));
 
-			case INIT_SUCCESS:
-				this.log.info("处理INIT_SUCCESS消息,id={},zrpe={}", zrpe.getId(), zrpe);
-				return;
+		switch (zrpete) {
+		case RESULT:
+			ZRPCClientHandlerAdapter.LOG.info("处理RESULT消息,id={},rv={},zrpe={}", zrpe.getId(), zrpe.getRv(), zrpe);
+			ZRC_RMI_CACHE.setResult(ZRC_RMI_CACHE.gKeyword(zrpe), zrpe);
 
-			case INVOEK_EXCEPTION:
-				this.log.warn("处理INVOEK_EXCEPTION消息,id={},message={}", zrpe.getId(), zrpe.getRv());
-				ZRC_RMI_CACHE.setResult(zrpe.getId(), zrpe);
-				return;
+			if (isDTMethod) {
+				ZRPCClientHandlerAdapter.this.zDistributedTransactionAspect.addRESULTName(zrpe, ctx);
+			}
 
-			case PRODUCER_CTX_CLOSED:
-				this.log.info("处理PRODUCER_CTX_CLOSED消息,id={},zrpe={}", zrpe.getId(), zrpe);
-				ZRC_RMI_CACHE.setResult(zrpe.getId(), zrpe);
+			// 在此异步执行远程方法返回的结果
+			ZE.submit(new ZRPCAsyncAfterReturnCallable(zrpe));
+			return;
 
-				return;
+		case ROLLBACK:
+			ZRPCClientHandlerAdapter.LOG.info("处理ROLLBACK消息,id={},rv={},zrpe={}", zrpe.getId(), zrpe.getRv(), zrpe);
 
-			case PRODUCER_NOT_FOUND:
-				this.log.info("处理PRODUCER_NOT_FOUND消息,id={},zrpe={}", zrpe.getId(), zrpe);
-				ZRC_RMI_CACHE.setResult(zrpe.getId(), zrpe);
-				return;
+			if (isDTMethod) {
 
-			case INVOEK:
-				this.log.info("处理INVOEK消息,id={},method={},zrpe={}", zrpe.getId(), zrpe.getName(), zrpe);
+				this.zeZPU.executeInQueue(new ZERunnable<String>() {
+
+					@Override
+					public void run() {
+						final InvokeDTO invokeDTOROLLBACK = ZPU.deserialize(
+								(byte[]) zrpe.getAttachMap()
+								.get(ZRPCProtocolAttachEnum.DISTRIBUTED_TRANSACTION_ATTACH.getAttachType()),
+								InvokeDTO.class);
+
+						ZRPCClientHandlerAdapter.this.ze1.executeByNameInASpecificThread(invokeDTOROLLBACK.getUuid(), new ZERunnable<String>() {
+
+							@Override
+							public void run() {
+								ZRPCClientHandlerAdapter.this.zdtLocalAspect.rollback(zrpe);
+							}
+						});
+
+					}
+				});
+
+
+			}
+
+			return;
+
+		case COMMIT:
+			ZRPCClientHandlerAdapter.LOG.info("处理COMMIT消息,id={},rv={},zrpe={}", zrpe.getId(), zrpe.getRv(), zrpe);
+
+			if (isDTMethod) {
+
+				this.zeZPU.executeInQueue(new ZERunnable<String>() {
+
+					@Override
+					public void run() {
+						final InvokeDTO invokeDTOCOMMIT = ZPU.deserialize(
+								(byte[]) zrpe.getAttachMap()
+										.get(ZRPCProtocolAttachEnum.DISTRIBUTED_TRANSACTION_ATTACH.getAttachType()),
+								InvokeDTO.class);
+
+						ZRPCClientHandlerAdapter.this.ze1.executeByNameInASpecificThread(invokeDTOCOMMIT.getUuid(), new ZERunnable<String>() {
+
+							@Override
+							public void run() {
+								ZRPCClientHandlerAdapter.this.zdtLocalAspect.commit(zrpe);
+							}
+						});
+					}
+				});
+
+			}
+
+			return;
+
+		case INVOEK:
+			ZRPCClientHandlerAdapter.LOG.info("处理INVOEK消息,id={},method={},zrpe={}", zrpe.getId(), zrpe.getName(), zrpe);
+
+			if (isDTMethod) {
+
+
+				this.zeZPU.executeInQueue(new ZERunnable<String>() {
+
+					@Override
+					public void run() {
+						final InvokeDTO invokeDTOINVOEK = ZPU.deserialize(
+								(byte[]) zrpe.getAttachMap()
+										.get(ZRPCProtocolAttachEnum.DISTRIBUTED_TRANSACTION_ATTACH.getAttachType()),
+								InvokeDTO.class);
+
+						ZRPCClientHandlerAdapter.this.ze1.executeByNameInASpecificThread(invokeDTOINVOEK.getUuid(), new ZERunnable<String>() {
+
+							@Override
+							public void run() {
+								ZRPCClientHandlerAdapter.LOG.info(
+										"处理INVOEK消息-executeByNameInASpecificThread,id={},method={},zrpe={}", zrpe.getId(),
+										zrpe.getName(), zrpe);
+								ZDTLocalAspect.isZDTLMethyodTL.set(true);
+								ZDTLocalAspect.ctxThreadLocal.set(ctx);
+								ZDTLocalAspect.zrpeThreadLocal.set(zrpe);
+								try {
+									ZRPCClientHandlerAdapter.invoke(zrpe);
+								} catch (final Exception e) {
+									// 不处理
+								}
+							}
+						});
+
+					}
+				});
+
+
+			} else {
 				ZE.execute(new Runnable() {
 					@Override
 					public void run() {
-						ZRPCClientHandlerAdapter.this.log.info("处理INVOEK消息开始执行本地方法,id={},method={},zrpe={}", zrpe.getId(), zrpe.getName(), zrpe);
 						try {
 
-							// FIXME 2021-12-27 19:30:51 zhangzhen :  改为try 只try invoke方法，然后catch里面send
-							final Object rv2 = ZRPCClientHandlerAdapter.this.invoke(zrpe);
-							final ZRPCProtocol zrpeRESULT = ZRPCProtocol.builder()
-											.id(zrpe.getId())
-											.serviceName(zrpe.getServiceName())
-											.name(zrpe.getName())
-											.type(ZRPETE.RESULT.getType())
-											.rv(rv2)
-											.build();
-							ZRPCClientHandlerAdapter.this.log.info("处理INVOEK消息开始执行本地方法,返回执行结果,id={},method={},resultId={},result={}",
-									zrpe.getId(), zrpe.getName(), zrpeRESULT.getId(), zrpeRESULT.getRv());
+							ZDTLocalAspect.isZDTLMethyodTL.set(true);
+							ZDTLocalAspect.ctxThreadLocal.set(ctx);
+							ZDTLocalAspect.zrpeThreadLocal.set(zrpe);
+							final Object rv2 = ZRPCClientHandlerAdapter.invoke(zrpe);
+							final ZRPCProtocol zrpeRESULT = ZRPCProtocol.builder().id(zrpe.getId())
+									.serviceName(zrpe.getServiceName()).name(zrpe.getName())
+									.type(ZRPETE.RESULT.getType()).rv(rv2).build();
+							ZRPCClientHandlerAdapter.LOG.info(
+									"处理INVOEK消息-本地方法执行结束,返回执行结果,id={},method={},resultId={},result={}", zrpe.getId(),
+									zrpe.getName(), zrpeRESULT.getId(), zrpeRESULT.getRv());
 
 							ZRPCClientSender.send(zrpeRESULT, ctx);
 						} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
-							ZRPCClientHandlerAdapter.this.log.error("处理INVOEK消息开始执行本地方法异常,id={},method={},message={},e={}",
-									zrpe.getId(), zrpe.getName(), e.getMessage(), e);
+							ZRPCClientHandlerAdapter.LOG.error(
+									"处理INVOEK消息执行本地方法-异常,id={},method={},message={},e={}", zrpe.getId(),
+									zrpe.getName(), e.getMessage(), e);
 							ZRPCClientHandlerAdapter.sendLocalMethodExceptionToConsumer(ctx, zrpe, e);
 
 							e.printStackTrace();
 						}
 					}
-
 				});
-				break;
-
-			case INIT:
-			case SHUTDOWN:
-				break;
-
-			default:
-				break;
 			}
 
-		}
+			break;
 
+		case INIT:
+		case SHUTDOWN:
+			break;
+
+		case INIT_SUCCESS:
+			ZRPCClientHandlerAdapter.LOG.info("处理INIT_SUCCESS消息,id={},zrpe={}", zrpe.getId(), zrpe);
+			return;
+
+		case INVOEK_EXCEPTION:
+			ZRPCClientHandlerAdapter.LOG.warn("处理INVOEK_EXCEPTION消息,id={},zrpe={}", zrpe.getId(), zrpe);
+			ZRC_RMI_CACHE.setResult(ZRC_RMI_CACHE.gKeyword(zrpe), zrpe);
+			return;
+
+		case PRODUCER_CTX_CLOSED:
+			ZRPCClientHandlerAdapter.LOG.info("处理PRODUCER_CTX_CLOSED消息,id={},zrpe={}", zrpe.getId(), zrpe);
+			ZRC_RMI_CACHE.setResult(ZRC_RMI_CACHE.gKeyword(zrpe), zrpe);
+
+			return;
+
+		case PRODUCER_NOT_FOUND:
+			ZRPCClientHandlerAdapter.LOG.info("处理PRODUCER_NOT_FOUND消息,id={},zrpe={}", zrpe.getId(), zrpe);
+			ZRC_RMI_CACHE.setResult(ZRC_RMI_CACHE.gKeyword(zrpe), zrpe);
+			return;
+
+		default:
+			break;
+		}
 	}
 
 	/**
@@ -203,7 +325,7 @@ public class ZRPCClientHandlerAdapter extends ChannelInboundHandlerAdapter {
 	 * @throws IllegalArgumentException the illegal argument exception
 	 * @throws InvocationTargetException the invocation target exception
 	 */
-	private Object invoke(final ZRPCProtocol zrpe)
+	private static Object invoke(final ZRPCProtocol zrpe)
 			throws IllegalAccessException, IllegalArgumentException, InvocationTargetException {
 
 		final Method localMethod = ZRMethodCache.getMethod(zrpe.getName());
@@ -231,7 +353,7 @@ public class ZRPCClientHandlerAdapter extends ChannelInboundHandlerAdapter {
 		for (int i = 0; i < parameterTypes.length; i++) {
 			final int paramIndex = i + 1;
 			final Object object = pm.get(paramIndex);
-			System.out.println("参数 i = " + i + "\t" + "value = " + object);
+//			System.out.println("参数 i = " + i + "\t" + "value = " + object);
 			if (Objects.isNull(object)) {
 				methodArgList.add(null);
 			}else {
@@ -299,7 +421,10 @@ public class ZRPCClientHandlerAdapter extends ChannelInboundHandlerAdapter {
 			final InvocationTargetException e2 = (InvocationTargetException) e;
 			final ZRPCProtocol invoekEXCEPTION = ZRPCProtocol.builder()
 						.id(zrpe.getId())
+						.name(zrpe.getName())
 						.type(ZRPETE.INVOEK_EXCEPTION.getType())
+						.attachMap(zrpe.getAttachMap())
+						.serviceName(zrpe.getServiceName())
 						.rv(String.valueOf(e2.getTargetException()))
 						.build();
 			ZRPCClientSender.send(invoekEXCEPTION, ctx);
@@ -307,6 +432,9 @@ public class ZRPCClientHandlerAdapter extends ChannelInboundHandlerAdapter {
 			final ZRPCProtocol invoekEXCEPTION = ZRPCProtocol.builder()
 						.id(zrpe.getId())
 						.type(ZRPETE.INVOEK_EXCEPTION.getType())
+						.attachMap(zrpe.getAttachMap())
+						.serviceName(zrpe.getServiceName())
+						.name(zrpe.getName())
 						.rv(String.valueOf(e))
 						.build();
 			ZRPCClientSender.send(invoekEXCEPTION, ctx);

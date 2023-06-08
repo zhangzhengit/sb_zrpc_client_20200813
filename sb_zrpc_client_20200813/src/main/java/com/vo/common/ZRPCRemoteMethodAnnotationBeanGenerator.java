@@ -1,6 +1,3 @@
-/*
- *
- */
 package com.vo.common;
 
 import java.io.IOException;
@@ -10,6 +7,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +28,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.vo.annotation.EnableZRPC;
 import com.vo.annotation.ZRPCAsync;
+import com.vo.annotation.ZRPCRemoteDT;
 import com.vo.annotation.ZRPCRemoteMethodAnnotation;
 import com.vo.async.ZRPCAsyncAfterReturn;
 import com.vo.cache.ZMethodAysncResultCache;
@@ -38,6 +37,7 @@ import com.vo.cache.ZRC_RMI_CACHE;
 import com.vo.conf.ZrpcConfiguration;
 import com.vo.netty.ZRPCClientHandlerAdapter;
 import com.vo.netty.ZRPCProtocol;
+import com.vo.netty.ZRPCProtocolAttachEnum;
 import com.vo.netty.ZRPETE;
 import com.vo.netty.ZR_RMIH;
 
@@ -46,9 +46,8 @@ import cn.hutool.core.util.ArrayUtil;
 import cn.hutool.core.util.ClassUtil;
 import groovy.lang.GroovyClassLoader;
 
-// TODO: Auto-generated Javadoc
 /**
-  *    给@ZRPCRemoteMethodAnnotation标记的interface动态生成一个实现类，并且注入到容器中.
+ * 给@ZRPCRemoteMethodAnnotation标记的interface动态生成一个实现类，并且注入到容器中.
  *
  * @author zhangzhen
  * @date 2021-12-15 1:10:17
@@ -75,7 +74,7 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 	public final static Class<ZRPCProtocol> ZRPE = ZRPCProtocol.class;
 
 	/** The Constant ZIDG. */
-	public final static Class<ZIDG> ZIDG = ZIDG.class;
+	public final static Class<ZIDG> ZIDG_CLS = ZIDG.class;
 
 	/** The Constant ZRPETE. */
 	public final static Class<ZRPETE> ZRPETE = ZRPETE.class;
@@ -99,7 +98,7 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 	public final static Class<ZR_RMIH> ZR_RMIH = ZR_RMIH.class;
 
 	/** The Constant ZRemoteMethodAnnotation. */
-	public final static Class<ZRPCRemoteMethodAnnotation> ZRemoteMethodAnnotation = ZRPCRemoteMethodAnnotation.class;
+	public final static Class<ZRPCRemoteMethodAnnotation> ZRPCRemoteMethodAnnotation = ZRPCRemoteMethodAnnotation.class;
 
 	/** The Constant Z_CLASS_SUFFIX. */
 	private static final String Z_CLASS_SUFFIX = "ZClass";
@@ -164,7 +163,6 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 			final Class<?> clazz = groovyClassLoader.parseClass(source);
 			return clazz.newInstance();
 		} catch (CompilationFailedException | IOException e) {
-			// FIXME 2022年1月4日 下午4:20:09 zhangzhen: 记得处理这里 TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return source;
@@ -186,7 +184,7 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 		}
 
 		for (final String packageName : set) {
-			final Set<Class<?>> comZMA = ClassUtil.scanPackageByAnnotation(packageName, ZRPCRemoteMethodAnnotationBeanGenerator.ZRemoteMethodAnnotation);
+			final Set<Class<?>> comZMA = ClassUtil.scanPackageByAnnotation(packageName, ZRPCRemoteMethodAnnotationBeanGenerator.ZRPCRemoteMethodAnnotation);
 			for (final Class<?> cls : comZMA) {
 				final String remoteMethodAnnotationValue = getRemoteMethodAnnotationValue(cls);
 				final String packageName2 = cls.getPackage().getName();
@@ -212,11 +210,11 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 		}
 
 		for (final Annotation a : as) {
- 			if (a.annotationType() != ZRPCRemoteMethodAnnotationBeanGenerator.ZRemoteMethodAnnotation) {
+ 			if (a.annotationType() != ZRPCRemoteMethodAnnotationBeanGenerator.ZRPCRemoteMethodAnnotation) {
 				continue;
 			}
 
-			final String canonicalName = ZRPCRemoteMethodAnnotationBeanGenerator.ZRemoteMethodAnnotation.getCanonicalName() + "(serviceName=";
+			final String canonicalName = ZRPCRemoteMethodAnnotationBeanGenerator.ZRPCRemoteMethodAnnotation.getCanonicalName() + "(serviceName=";
 			final String s = a.toString();
 			final int i1 = s.indexOf(canonicalName);
 			if (i1 > -1) {
@@ -251,20 +249,21 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 
 		final ZClass zClass = new ZClass();
 		zClass.setPackage1(zPackage);
-		System.out.println("ANNOTATION.getCanonicalName() = " + ZRPCRemoteMethodAnnotationBeanGenerator.ZRemoteMethodAnnotation.getCanonicalName());
+		System.out.println("ANNOTATION.getCanonicalName() = " + ZRPCRemoteMethodAnnotationBeanGenerator.ZRPCRemoteMethodAnnotation.getCanonicalName());
 		zClass.setImportSet(Sets.newHashSet(
 								ZRPCRemoteMethodAnnotationBeanGenerator.ZMETHODAYSNCRESULTCACHE.getCanonicalName(),
 								ZRPCRemoteMethodAnnotationBeanGenerator.ZMETHODINFO.getCanonicalName(),
-								ZRPCRemoteMethodAnnotationBeanGenerator.ZRemoteMethodAnnotation.getCanonicalName(),
+								ZRPCRemoteMethodAnnotationBeanGenerator.ZRPCRemoteMethodAnnotation.getCanonicalName(),
 								ZRPCRemoteMethodAnnotationBeanGenerator.ZPU.getCanonicalName(),
 								ZRPCRemoteMethodAnnotationBeanGenerator.LAZY.getCanonicalName(),
 								cls.getCanonicalName(),
 								ZRPCRemoteMethodAnnotationBeanGenerator.ZRC_RMI_CACHE.getCanonicalName(),
 								ZRPCRemoteMethodAnnotationBeanGenerator.ZRPE.getCanonicalName(),
-								ZRPCRemoteMethodAnnotationBeanGenerator.ZIDG.getCanonicalName(),
+								ZRPCRemoteMethodAnnotationBeanGenerator.ZIDG_CLS.getCanonicalName(),
+								java.util.Map.class.getCanonicalName(),
 								ZRPCRemoteMethodAnnotationBeanGenerator.ZRPETE.getCanonicalName(),
 								ZRPCRemoteMethodAnnotationBeanGenerator.AUTOWIRED.getCanonicalName()));
-		zClass.setAnnotationSet(Sets.newHashSet("@" + ZRPCRemoteMethodAnnotationBeanGenerator.ZRemoteMethodAnnotation.getSimpleName() + "(serviceName = \"" + remoteMethodAnnotationValue + "\")",
+		zClass.setAnnotationSet(Sets.newHashSet("@" + ZRPCRemoteMethodAnnotationBeanGenerator.ZRPCRemoteMethodAnnotation.getSimpleName() + "(serviceName = \"" + remoteMethodAnnotationValue + "\")",
 												"@" + ZRPCRemoteMethodAnnotationBeanGenerator.LAZY.getSimpleName()));
 		zClass.setAccessRights(ZMethodAccessEnum.PUBLIC);
 		zClass.setName(cls.getSimpleName() + ZRPCRemoteMethodAnnotationBeanGenerator.Z_CLASS_SUFFIX);
@@ -283,7 +282,12 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 				continue;
 			}
 
+			final boolean methodAsync = isMethodAsync(method);
+
 			final ZMethod zMethod = new ZMethod();
+			if(methodAsync) {
+				zMethod.addAnnotation("@" + ZRPCAsync.class.getCanonicalName());
+			}
 			zMethod.setAccessRights(ZMethodAccessEnum.PUBLIC);
 			zMethod.setFinal(Modifier.isFinal(method.getModifiers()));
 			zMethod.setStatic(Modifier.isStatic(method.getModifiers()));
@@ -348,11 +352,16 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 		checkIsAsync(method.getName(), isMethodAsync);
 
 		final String b3 = b  +
-				" final Object rv = this.zr_RMIH.invoke(zrpe,false);" +  ZClass.NEW_LINE +
-				" final byte[] rvBA = (byte[])rv;" +  ZClass.NEW_LINE +
-				" " + returnTypeCanonicalName + " rv2 = " + ZRPCRemoteMethodAnnotationBeanGenerator.ZPU.getCanonicalName() + ".deserialize(rvBA, " + returnTypeCanonicalName +".class);" +  ZClass.NEW_LINE +
-				" return rv2;" +  ZClass.NEW_LINE +
-				" ";
+				" try { " +  ZClass.NEW_LINE +
+					" final Object rv = this.zr_RMIH.invoke(zrpe,false);" +  ZClass.NEW_LINE +
+					" final byte[] rvBA = (byte[])rv;" +  ZClass.NEW_LINE +
+					" " + returnTypeCanonicalName + " rv2 = " + ZRPCRemoteMethodAnnotationBeanGenerator.ZPU.getCanonicalName() + ".deserialize(rvBA, " + returnTypeCanonicalName +".class);" +  ZClass.NEW_LINE +
+					" return rv2;" +  ZClass.NEW_LINE +
+				" } catch (Exception e) { " +  ZClass.NEW_LINE +
+					"throw e; " +  ZClass.NEW_LINE +
+				" } " +  ZClass.NEW_LINE +
+				" return null;";
+
 		return b3;
 	}
 
@@ -383,14 +392,33 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 		final String a = argList.stream()
 			   .collect(Collectors.joining(","));
 
-		final String zrpe =
-				" final ZRPCProtocol zrpe = ZRPCProtocol.builder()" + ZClass.NEW_LINE +
-						".serviceName(\"" + remoteMethodAnnotationValue + "\")" +  ZClass.NEW_LINE +
-						".id(ZIDG.generateId())" +  ZClass.NEW_LINE +
-						".type(ZRPETE.INVOEK.getType())" + ZClass.NEW_LINE +
-						".name(\"" + method.getName() + "\")" +  ZClass.NEW_LINE +
-						".args(new com.vo.common.ZArrayList(" + a+ "))" +  ZClass.NEW_LINE +
-						".build();" + ZClass.NEW_LINE;
+		final Map<Integer, Object> map = new HashMap<>(2, 1F);
+		final boolean dt = method.isAnnotationPresent(ZRPCRemoteDT.class);
+		if (dt) {
+			map.put(ZRPCProtocolAttachEnum.DISTRIBUTED_TRANSACTION.getAttachType(), 1);
+			final String body = " final ZRPCProtocol zrpe = ZRPCProtocol.builder()" + ZClass.NEW_LINE +
+					".serviceName(\"" + remoteMethodAnnotationValue + "\")" +  ZClass.NEW_LINE +
+					".id(ZIDG.generateId())" +  ZClass.NEW_LINE +
+					".type(ZRPETE.INVOEK.getType())" + ZClass.NEW_LINE +
+					".attachMap(ZRPCProtocol.dt())" +  ZClass.NEW_LINE +
+					".name(\"" + method.getName() + "\")" +  ZClass.NEW_LINE +
+					".args(new com.vo.common.ZArrayList(" + a+ "))" +  ZClass.NEW_LINE +
+					".build();" + ZClass.NEW_LINE;
+
+			final String zrpe = body;
+
+			return zrpe;
+		}
+
+		final String body = " final ZRPCProtocol zrpe = ZRPCProtocol.builder()" + ZClass.NEW_LINE +
+				".serviceName(\"" + remoteMethodAnnotationValue + "\")" +  ZClass.NEW_LINE +
+				".id(ZIDG.generateId())" +  ZClass.NEW_LINE +
+				".type(ZRPETE.INVOEK.getType())" + ZClass.NEW_LINE +
+				".name(\"" + method.getName() + "\")" +  ZClass.NEW_LINE +
+				".args(new com.vo.common.ZArrayList(" + a+ "))" +  ZClass.NEW_LINE +
+				".build();" + ZClass.NEW_LINE;
+
+		final String zrpe = body;
 
 		return zrpe;
 	}
@@ -420,11 +448,16 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 
 		checkIsAsync(method.getName(), isMethodAsync);
 
-		final String b3 = b +
-				" final Object rv = this.zr_RMIH.invoke(zrpe,false);" +  ZClass.NEW_LINE +
-				" final byte[] rvBA = (byte[])rv;" +  ZClass.NEW_LINE +
-				" " + returnTypeCanonicalName + " rv2 = " + ZRPCRemoteMethodAnnotationBeanGenerator.ZPU.getCanonicalName() + ".deserialize(rvBA, " + returnTypeCanonicalName +".class);" +  ZClass.NEW_LINE +
-				" return rv2;";
+		final String b3 = b  +
+				" try { " +  ZClass.NEW_LINE +
+					" final Object rv = this.zr_RMIH.invoke(zrpe,false);" +  ZClass.NEW_LINE +
+					" final byte[] rvBA = (byte[])rv;" +  ZClass.NEW_LINE +
+					" " + returnTypeCanonicalName + " rv2 = " + ZRPCRemoteMethodAnnotationBeanGenerator.ZPU.getCanonicalName() + ".deserialize(rvBA, " + returnTypeCanonicalName +".class);" +  ZClass.NEW_LINE +
+					" return rv2;" +  ZClass.NEW_LINE +
+				" } catch (Exception e) { " +  ZClass.NEW_LINE +
+					"throw e; " +  ZClass.NEW_LINE +
+				" } " +  ZClass.NEW_LINE +
+				" return null;";
 
 		return b3;
 	}
@@ -499,13 +532,31 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 	 * @return the string
 	 */
 	private static String generateMethodProtocolHasNoParameter(final Method method, final String remoteMethodAnnotationValue) {
-		return
+
+		final Map<Integer, Object> map = new HashMap<>(2, 1F);
+		final boolean dt = method.isAnnotationPresent(ZRPCRemoteDT.class);
+		if (dt) {
+			map.put(ZRPCProtocolAttachEnum.DISTRIBUTED_TRANSACTION.getAttachType(), 1);
+			final String body =
+					" final ZRPCProtocol zrpe = ZRPCProtocol.builder()" +  ZClass.NEW_LINE +
+					".serviceName(\"" + remoteMethodAnnotationValue + "\")" +  ZClass.NEW_LINE +
+					".id(ZIDG.generateId())" +  ZClass.NEW_LINE +
+					".type(ZRPETE.INVOEK.getType())" +  ZClass.NEW_LINE +
+					".attachMap(ZRPCProtocol.dt())" +  ZClass.NEW_LINE +
+					".name(\"" + method.getName() + "\")" +  ZClass.NEW_LINE +
+					".build();" + ZClass.NEW_LINE;
+			return body;
+		}
+
+		final String body =
 				" final ZRPCProtocol zrpe = ZRPCProtocol.builder()" +  ZClass.NEW_LINE +
-						".serviceName(\"" + remoteMethodAnnotationValue + "\")" +  ZClass.NEW_LINE +
-						".id(ZIDG.generateId())" +  ZClass.NEW_LINE +
-						".type(ZRPETE.INVOEK.getType())" +  ZClass.NEW_LINE +
-						".name(\"" + method.getName() + "\")" +  ZClass.NEW_LINE +
-						".build();" + ZClass.NEW_LINE;
+				".serviceName(\"" + remoteMethodAnnotationValue + "\")" +  ZClass.NEW_LINE +
+				".id(ZIDG.generateId())" +  ZClass.NEW_LINE +
+				".type(ZRPETE.INVOEK.getType())" +  ZClass.NEW_LINE +
+				".name(\"" + method.getName() + "\")" +  ZClass.NEW_LINE +
+				".build();" + ZClass.NEW_LINE;
+		return body;
+
 	}
 
 }
