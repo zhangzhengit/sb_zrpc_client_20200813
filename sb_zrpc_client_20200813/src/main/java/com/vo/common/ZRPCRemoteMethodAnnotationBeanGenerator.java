@@ -20,10 +20,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.context.annotation.Lazy;
 
-import com.example.h.ZClass;
-import com.example.h.ZMethod;
-import com.example.h.ZMethodAccessEnum;
-import com.example.h.ZPackage;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.vo.annotation.EnableZRPC;
@@ -35,6 +31,11 @@ import com.vo.cache.ZMethodAysncResultCache;
 import com.vo.cache.ZMethodAysncResultCache.ZMethodInfo;
 import com.vo.cache.ZRC_RMI_CACHE;
 import com.vo.conf.ZrpcConfiguration;
+import com.vo.core.ZClass;
+import com.vo.core.ZMethod;
+import com.vo.core.ZMethodAccessEnum;
+import com.vo.core.ZMethodArg;
+import com.vo.core.ZPackage;
 import com.vo.netty.ZRPCClientHandlerAdapter;
 import com.vo.netty.ZRPCProtocol;
 import com.vo.netty.ZRPCProtocolAttachEnum;
@@ -293,7 +294,6 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 			zMethod.setStatic(Modifier.isStatic(method.getModifiers()));
 			zMethod.setSynchronized(Modifier.isSynchronized(method.getModifiers()));
 			zMethod.setReturnType(method.getReturnType().getCanonicalName());
-			zMethod.setGenerateReturn(false);
 			zMethod.setName(method.getName());
 
 			final Parameter[] pa = method.getParameters();
@@ -301,23 +301,19 @@ public class ZRPCRemoteMethodAnnotationBeanGenerator {
 				final String generateMethodBodyHasNoParameter = generateMethodBodyHasNoParameter(method, remoteMethodAnnotationValue);
 				zMethod.setBody(generateMethodBodyHasNoParameter);
 			} else {
-				final StringBuilder argBuilder = new StringBuilder();
 				final List<String> argList = Lists.newArrayList();
+				final ArrayList<ZMethodArg> mal = Lists.newArrayList();
 				for (int i = 0; i < pa.length; i++) {
-					argBuilder.append(pa[i].getType().getCanonicalName());
-					argBuilder.append(' ');
-					argBuilder.append(pa[i].getName());
-					if (i != pa.length - 1) {
-						argBuilder.append(',');
-					}
-
+					final ZMethodArg methodArg = new ZMethodArg(pa[i].getType().getCanonicalName(), pa[i].getName());
+					mal.add(methodArg);
 					argList.add(pa[i].getName());
 				}
-				zMethod.setArgList(Lists.newArrayList(argBuilder.toString()));
+
+				zMethod.setMethodArgList(mal);
 				final String h = generateMethodBodyHasParameter(method, argList, remoteMethodAnnotationValue);
 				zMethod.setBody(h);
-
 			}
+
 			methodSet.add(zMethod);
 		}
 		zClass.setMethodSet(methodSet);
